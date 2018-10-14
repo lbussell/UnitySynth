@@ -1,0 +1,15 @@
+﻿<Properties StartupConfiguration="{A84EC328-A9D1-0C5F-083F-AA9D4E3DBAB3}|">
+  <MonoDevelop.Ide.Workbench ActiveDocument="Assets/manageUI.cs">
+    <Files>
+      <File FileName="Assets/Oscillator.cs" Line="62" Column="6" />
+      <File FileName="Assets/manageUI.cs" Line="7" Column="12" />
+    </Files>
+  </MonoDevelop.Ide.Workbench>
+  <MonoDevelop.Ide.DebuggingService.PinnedWatches />
+  <MonoDevelop.Ide.Workspace ActiveConfiguration="Debug" />
+  <MonoDevelop.Ide.ItemProperties.Assembly-CSharp PreferredExecutionTarget="Unity.Editor" />
+  <MonoDevelop.Ide.DebuggingService.Breakpoints>
+    <BreakpointStore />
+  </MonoDevelop.Ide.DebuggingService.Breakpoints>
+  <MultiItemStartupConfigurations />
+</Properties>
