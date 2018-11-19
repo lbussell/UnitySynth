@@ -3079,6 +3079,8 @@ GameObject:
   - component: {fileID: 2095335078}
   - component: {fileID: 2095335077}
   - component: {fileID: 2095335080}
+  - component: {fileID: 2095335081}
+  - component: {fileID: 2095335082}
   m_Layer: 0
   m_Name: Oscillator
   m_TagString: Untagged
@@ -3099,11 +3101,7 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   waveShape: Sine
   keyboardLayout: Colemak
-  volume: 1
-  attack: 0
-  decay: 0
-  sustain: 0
-  resonance: 0
+  volume: 0.05000000074505806
 --- !u!82 &2095335078
 AudioSource:
   m_ObjectHideFlags: 0
@@ -3121,7 +3119,7 @@ AudioSource:
   Mute: 0
   Spatialize: 0
   SpatializePostEffects: 0
-  Priority: 128
+  Priority: 0
   DopplerLevel: 1
   MinDistance: 1
   MaxDistance: 500
@@ -3223,3 +3221,26 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: d5cf6a8c703c947b9a0c4b2827e201d1, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
+--- !u!114 &2095335081
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInternal: {fileID: 0}
+  m_GameObject: {fileID: 2095335076}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: bf4d88f6b62f344deaa76df296c134b5, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+--- !u!114 &2095335082
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInternal: {fileID: 0}
+  m_GameObject: {fileID: 2095335076}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 3289f5c19653742f193d794b76b50f33, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  oscillator: {fileID: 2095335077}

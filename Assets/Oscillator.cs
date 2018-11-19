@@ -1,61 +1,84 @@
 ﻿using System.Collections;
 using System.Collections.Generic;
+using MidiJack;
 using UnityEngine;
 
-public class Oscillator : MonoBehaviour {
+public class Oscillator : MonoBehaviour
+{
 
-    private static double SAMPLING_FREQUENCY = 48000;
-    private double increment;
+    private Envelope envelope;
+
+    private static int SAMPLING_FREQUENCY = 44100;
+    private double phaseIncrement;
     private double phase;
-    private float gain;
+    private double amplitude;
 
-    private double oscFreqency = 440.0;
+    private double dspTimeStep;
+    private double chunkTime;
+    private double currentDspTime;
+
+    private bool noteIsOn = false;
+    private int numberOfNotesOn;
+    private double triggerOnTime;
+    private double triggerOffTime = 0;
+
+    private double oscFrequency = 440.0;
     private double[] frequencies;
     private int octave = 4; // Octave 4 for A4
+
+    private double attack = 0.5;
+    private double decay = 0.2;
+    private double sustain = 0;
+    private double resonance = 0.1f;
 
     // Modifiable Parameters
     public string waveShape = "Sine";
     public string keyboardLayout = "Qwerty";
 
-    public float volume = 0.1f;
-    public float attack;
-    public float decay;
-    public float sustain;
-    public float resonance;
+    public double volume = 0.1;
 
     // Oscillator
-    void OnAudioFilterRead(float[] data, int channels) {
-
+    void OnAudioFilterRead(float[] data, int channels)
+    {
+        currentDspTime = AudioSettings.dspTime;
+        chunkTime = data.Length / channels / SAMPLING_FREQUENCY;   // the time that each chunk of data lasts
+        dspTimeStep = chunkTime / data.Length;
+        double preciseDspTime;
         // Oscillator 1
-        for (int i = 0; i < data.Length; i += channels) {
+        for (int i = 0; i < data.Length; i += channels)
+        {
+            preciseDspTime = currentDspTime + i * dspTimeStep;
 
-            increment = oscFreqency * 2.0 * Mathf.PI / SAMPLING_FREQUENCY;
-            phase += increment;
+            phaseIncrement = oscFrequency * 2.0 * Mathf.PI / SAMPLING_FREQUENCY;
+            phase += phaseIncrement;
+
+            amplitude = ComputeAmplitude(preciseDspTime) * volume;
 
             if (phase > (Mathf.PI * 2)) phase = phase % (Mathf.PI * 2);
 
-            if (waveShape.Equals("Sine")) 
+            switch (waveShape)
             {
-                data[i] = (float)(gain * Mathf.Sin((float)phase));
-            } 
-            else if (waveShape.Equals("Sawtooth")) 
-            {
-                double saw = (gain * phase) - (gain / 2);
-                data[i] = (float) saw;
-            } 
-            else if (waveShape.Equals("Square"))
-            {
-                if (phase > Mathf.PI) data[i] = (gain) - (gain / 2);
-                else data[i] = -(gain / 2);
+                case "Sine":
+                    data[i] += (float)(amplitude * Mathf.Sin((float)phase));
+                    break;
+                case "Sawtooth":
+                    double saw = (amplitude * phase) - (amplitude / 2);
+                    data[i] += (float)saw;
+                    break;
+                case "Square":
+                    if (phase > Mathf.PI) data[i] = 
+                        (float) (amplitude - (amplitude / 2));
+                    else data[i] += (float) -(amplitude / 2);
+                    break;
             }
 
             // stereo audio
             if (channels == 2) data[i + 1] = data[i];
         }
-        
+
     }
 
-    // Start is called at the beginning 
+    // Start is called at the beginning
     void Start()
     {
         frequencies = GenerateFrequencies();
@@ -64,9 +87,64 @@ public class Oscillator : MonoBehaviour {
     // Update is called once per frame
     void Update()
     {
-        if (keyboardLayout.Equals("Colemak")) checkColemakInput();
-        else if (keyboardLayout.Equals("Qwerty")) checkQwertyInput();
+        //if (keyboardLayout.Equals("Colemak")) checkColemakInput();
+        //else if (keyboardLayout.Equals("Qwerty")) checkQwertyInput();
+        // amplitude = ComputeAmplitude(Time.time) * volume;
+        attack = MidiMaster.GetKnob(21, 0);
+        decay = MidiMaster.GetKnob(22, 0);
+        sustain = MidiMaster.GetKnob(23, 0);
     }
+
+    double ComputeAmplitude(double preciseDspTime)
+    {
+        // return 1;
+        double dTime = preciseDspTime - triggerOnTime;
+
+        if (numberOfNotesOn > 0)
+        {
+            if (dTime <= attack && attack > 0)
+            {
+                return dTime / attack;
+            }
+            else if (dTime > attack && dTime <= attack + decay) 
+            {
+                return ((dTime - attack) / decay) * (sustain - 1) + 1;
+            }
+            else if (dTime > attack + decay)
+            {
+                return sustain;
+            }
+            else return 1;
+        }
+        return 0;
+    }
+
+    void NoteOn(MidiChannel channel, int note, float velocity)
+    {
+        Debug.Log("NoteOn: " + channel + "," + note + "," + velocity);
+        oscFrequency = frequencies[note];
+        numberOfNotesOn++;
+        triggerOnTime = AudioSettings.dspTime;
+    }
+
+    void NoteOff(MidiChannel channel, int note)
+    {
+        Debug.Log("NoteOff: " + channel + "," + note);
+        numberOfNotesOn--;
+        triggerOffTime = AudioSettings.dspTime;
+    }
+
+    void Knob(MidiChannel channel, int knobNumber, float knobValue)
+    {
+        Debug.Log("Knob: " + knobNumber + "," + knobValue);
+    }
+
+    /**
+     * 
+     * 
+     * 
+     * 
+     */
 
     public void ChangeVolume(float value) {
         this.volume = value;
@@ -80,221 +158,234 @@ public class Oscillator : MonoBehaviour {
         this.keyboardLayout = newLayout;
     }
 
-    // Checks for Colemak keyboard input
-    void checkColemakInput() {
+    //void checkColemakInput() {
 
-        if (!Input.anyKey)
-        {
-            gain = 0;
-        }
+    //    if (!Input.anyKey)
+    //    {
+    //        amplitude = 0;
+    //    }
 
-        if (Input.GetKeyDown(KeyCode.LeftArrow))
-        {
-            if (octave > 0) octave--;
-        }
-        else if (Input.GetKeyDown(KeyCode.RightArrow))
-        {
-            if (octave < 6) octave++;
-        }
+    //    if (Input.GetKeyDown(KeyCode.LeftArrow))
+    //    {
+    //        if (octave > 0) octave--;
+    //    }
+    //    else if (Input.GetKeyDown(KeyCode.RightArrow))
+    //    {
+    //        if (octave < 6) octave++;
+    //    }
 
-        if (Input.GetKeyDown(KeyCode.Z))
-        {
-            gain = volume;
-            oscFreqency = frequencies[octave * 12 + 0];
-        }
-        else if (Input.GetKeyDown(KeyCode.R))
-        {
-            gain = volume;
-            oscFreqency = frequencies[octave * 12 + 1];
-        }
-        else if (Input.GetKeyDown(KeyCode.X))
-        {
-            gain = volume;
-            oscFreqency = frequencies[octave * 12 + 2];
-        }
-        else if (Input.GetKeyDown(KeyCode.C))
-        {
-            gain = volume;
-            oscFreqency = frequencies[octave * 12 + 3];
-        }
-        else if (Input.GetKeyDown(KeyCode.T))
-        {
-            gain = volume;
-            oscFreqency = frequencies[octave * 12 + 4];
-        }
-        else if (Input.GetKeyDown(KeyCode.V))
-        {
-            gain = volume;
-            oscFreqency = frequencies[octave * 12 + 5];
-        }
-        else if (Input.GetKeyDown(KeyCode.D))
-        {
-            gain = volume;
-            oscFreqency = frequencies[octave * 12 + 6];
-        }
-        else if (Input.GetKeyDown(KeyCode.B))
-        {
-            gain = volume;
-            oscFreqency = frequencies[octave * 12 + 7];
-        }
-        else if (Input.GetKeyDown(KeyCode.K))
-        {
-            gain = volume;
-            oscFreqency = frequencies[octave * 12 + 8];
-        }
-        else if (Input.GetKeyDown(KeyCode.N))
-        {
-            gain = volume;
-            oscFreqency = frequencies[octave * 12 + 9];
-        }
-        else if (Input.GetKeyDown(KeyCode.M))
-        {
-            gain = volume;
-            oscFreqency = frequencies[octave * 12 + 10];
-        }
-        else if (Input.GetKeyDown(KeyCode.E))
-        {
-            gain = volume;
-            oscFreqency = frequencies[octave * 12 + 11];
-        }
-        else if (Input.GetKeyDown(KeyCode.Comma))
-        {
-            gain = volume;
-            oscFreqency = frequencies[octave * 12 + 12];
-        }
-        else if (Input.GetKeyDown(KeyCode.I))
-        {
-            gain = volume;
-            oscFreqency = frequencies[octave * 12 + 13];
-        }
-        else if (Input.GetKeyDown(KeyCode.Period))
-        {
-            gain = volume;
-            oscFreqency = frequencies[octave * 12 + 14];
-        }
-        else if (Input.GetKeyDown(KeyCode.Slash))
-        {
-            gain = volume;
-            oscFreqency = frequencies[octave * 12 + 15];
-        }
-    }
+    //    if (Input.GetKeyDown(KeyCode.Z))
+    //    {
+    //        amplitude = volume;
+    //        oscFrequency = frequencies[octave * 12 + 0];
+    //    }
+    //    else if (Input.GetKeyDown(KeyCode.R))
+    //    {
+    //        amplitude = volume;
+    //        oscFrequency = frequencies[octave * 12 + 1];
+    //    }
+    //    else if (Input.GetKeyDown(KeyCode.X))
+    //    {
+    //        amplitude = volume;
+    //        oscFrequency = frequencies[octave * 12 + 2];
+    //    }
+    //    else if (Input.GetKeyDown(KeyCode.C))
+    //    {
+    //        amplitude = volume;
+    //        oscFrequency = frequencies[octave * 12 + 3];
+    //    }
+    //    else if (Input.GetKeyDown(KeyCode.T))
+    //    {
+    //        amplitude = volume;
+    //        oscFrequency = frequencies[octave * 12 + 4];
+    //    }
+    //    else if (Input.GetKeyDown(KeyCode.V))
+    //    {
+    //        amplitude = volume;
+    //        oscFrequency = frequencies[octave * 12 + 5];
+    //    }
+    //    else if (Input.GetKeyDown(KeyCode.D))
+    //    {
+    //        amplitude = volume;
+    //        oscFrequency = frequencies[octave * 12 + 6];
+    //    }
+    //    else if (Input.GetKeyDown(KeyCode.B))
+    //    {
+    //        amplitude = volume;
+    //        oscFrequency = frequencies[octave * 12 + 7];
+    //    }
+    //    else if (Input.GetKeyDown(KeyCode.K))
+    //    {
+    //        amplitude = volume;
+    //        oscFrequency = frequencies[octave * 12 + 8];
+    //    }
+    //    else if (Input.GetKeyDown(KeyCode.N))
+    //    {
+    //        amplitude = volume;
+    //        oscFrequency = frequencies[octave * 12 + 9];
+    //    }
+    //    else if (Input.GetKeyDown(KeyCode.M))
+    //    {
+    //        amplitude = volume;
+    //        oscFrequency = frequencies[octave * 12 + 10];
+    //    }
+    //    else if (Input.GetKeyDown(KeyCode.E))
+    //    {
+    //        amplitude = volume;
+    //        oscFrequency = frequencies[octave * 12 + 11];
+    //    }
+    //    else if (Input.GetKeyDown(KeyCode.Comma))
+    //    {
+    //        amplitude = volume;
+    //        oscFrequency = frequencies[octave * 12 + 12];
+    //    }
+    //    else if (Input.GetKeyDown(KeyCode.I))
+    //    {
+    //        amplitude = volume;
+    //        oscFrequency = frequencies[octave * 12 + 13];
+    //    }
+    //    else if (Input.GetKeyDown(KeyCode.Period))
+    //    {
+    //        amplitude = volume;
+    //        oscFrequency = frequencies[octave * 12 + 14];
+    //    }
+    //    else if (Input.GetKeyDown(KeyCode.Slash))
+    //    {
+    //        amplitude = volume;
+    //        oscFrequency = frequencies[octave * 12 + 15];
+    //    }
+    //}
 
-    void checkQwertyInput()
-    {
+    //void checkQwertyInput()
+    //{
 
-        if (!Input.anyKey)
-        {
-            gain = 0;
-        }
+    //    if (!Input.anyKey)
+    //    {
+    //        amplitude = 0;
+    //    }
 
-        if (Input.GetKeyDown(KeyCode.LeftArrow))
-        {
-            if (octave > 0) octave--;
-        }
-        else if (Input.GetKeyDown(KeyCode.RightArrow))
-        {
-            if (octave < 6) octave++;
-        }
+    //    if (Input.GetKeyDown(KeyCode.LeftArrow))
+    //    {
+    //        if (octave > 0) octave--;
+    //    }
+    //    else if (Input.GetKeyDown(KeyCode.RightArrow))
+    //    {
+    //        if (octave < 6) octave++;
+    //    }
 
-        if (Input.GetKeyDown(KeyCode.Z))
-        {
-            gain = volume;
-            oscFreqency = frequencies[octave * 12 + 0];
-        }
-        else if (Input.GetKeyDown(KeyCode.S))
-        {
-            gain = volume;
-            oscFreqency = frequencies[octave * 12 + 1];
-        }
-        else if (Input.GetKeyDown(KeyCode.X))
-        {
-            gain = volume;
-            oscFreqency = frequencies[octave * 12 + 2];
-        }
-        else if (Input.GetKeyDown(KeyCode.C))
-        {
-            gain = volume;
-            oscFreqency = frequencies[octave * 12 + 3];
-        }
-        else if (Input.GetKeyDown(KeyCode.F))
-        {
-            gain = volume;
-            oscFreqency = frequencies[octave * 12 + 4];
-        }
-        else if (Input.GetKeyDown(KeyCode.V))
-        {
-            gain = volume;
-            oscFreqency = frequencies[octave * 12 + 5];
-        }
-        else if (Input.GetKeyDown(KeyCode.G))
-        {
-            gain = volume;
-            oscFreqency = frequencies[octave * 12 + 6];
-        }
-        else if (Input.GetKeyDown(KeyCode.B))
-        {
-            gain = volume;
-            oscFreqency = frequencies[octave * 12 + 7];
-        }
-        else if (Input.GetKeyDown(KeyCode.N))
-        {
-            gain = volume;
-            oscFreqency = frequencies[octave * 12 + 8];
-        }
-        else if (Input.GetKeyDown(KeyCode.J))
-        {
-            gain = volume;
-            oscFreqency = frequencies[octave * 12 + 9];
-        }
-        else if (Input.GetKeyDown(KeyCode.M))
-        {
-            gain = volume;
-            oscFreqency = frequencies[octave * 12 + 10];
-        }
-        else if (Input.GetKeyDown(KeyCode.K))
-        {
-            gain = volume;
-            oscFreqency = frequencies[octave * 12 + 11];
-        }
-        else if (Input.GetKeyDown(KeyCode.Comma))
-        {
-            gain = volume;
-            oscFreqency = frequencies[octave * 12 + 12];
-        }
-        else if (Input.GetKeyDown(KeyCode.L))
-        {
-            gain = volume;
-            oscFreqency = frequencies[octave * 12 + 13];
-        }
-        else if (Input.GetKeyDown(KeyCode.Period))
-        {
-            gain = volume;
-            oscFreqency = frequencies[octave * 12 + 14];
-        }
-        else if (Input.GetKeyDown(KeyCode.Slash))
-        {
-            gain = volume;
-            oscFreqency = frequencies[octave * 12 + 15];
-        }
-    }
+    //    if (Input.GetKeyDown(KeyCode.Z))
+    //    {
+    //        amplitude = volume;
+    //        oscFrequency = frequencies[octave * 12 + 0];
+    //    }
+    //    else if (Input.GetKeyDown(KeyCode.S))
+    //    {
+    //        amplitude = volume;
+    //        oscFrequency = frequencies[octave * 12 + 1];
+    //    }
+    //    else if (Input.GetKeyDown(KeyCode.X))
+    //    {
+    //        amplitude = volume;
+    //        oscFrequency = frequencies[octave * 12 + 2];
+    //    }
+    //    else if (Input.GetKeyDown(KeyCode.C))
+    //    {
+    //        amplitude = volume;
+    //        oscFrequency = frequencies[octave * 12 + 3];
+    //    }
+    //    else if (Input.GetKeyDown(KeyCode.F))
+    //    {
+    //        amplitude = volume;
+    //        oscFrequency = frequencies[octave * 12 + 4];
+    //    }
+    //    else if (Input.GetKeyDown(KeyCode.V))
+    //    {
+    //        amplitude = volume;
+    //        oscFrequency = frequencies[octave * 12 + 5];
+    //    }
+    //    else if (Input.GetKeyDown(KeyCode.G))
+    //    {
+    //        amplitude = volume;
+    //        oscFrequency = frequencies[octave * 12 + 6];
+    //    }
+    //    else if (Input.GetKeyDown(KeyCode.B))
+    //    {
+    //        amplitude = volume;
+    //        oscFrequency = frequencies[octave * 12 + 7];
+    //    }
+    //    else if (Input.GetKeyDown(KeyCode.N))
+    //    {
+    //        amplitude = volume;
+    //        oscFrequency = frequencies[octave * 12 + 8];
+    //    }
+    //    else if (Input.GetKeyDown(KeyCode.J))
+    //    {
+    //        amplitude = volume;
+    //        oscFrequency = frequencies[octave * 12 + 9];
+    //    }
+    //    else if (Input.GetKeyDown(KeyCode.M))
+    //    {
+    //        amplitude = volume;
+    //        oscFrequency = frequencies[octave * 12 + 10];
+    //    }
+    //    else if (Input.GetKeyDown(KeyCode.K))
+    //    {
+    //        amplitude = volume;
+    //        oscFrequency = frequencies[octave * 12 + 11];
+    //    }
+    //    else if (Input.GetKeyDown(KeyCode.Comma))
+    //    {
+    //        amplitude = volume;
+    //        oscFrequency = frequencies[octave * 12 + 12];
+    //    }
+    //    else if (Input.GetKeyDown(KeyCode.L))
+    //    {
+    //        amplitude = volume;
+    //        oscFrequency = frequencies[octave * 12 + 13];
+    //    }
+    //    else if (Input.GetKeyDown(KeyCode.Period))
+    //    {
+    //        amplitude = volume;
+    //        oscFrequency = frequencies[octave * 12 + 14];
+    //    }
+    //    else if (Input.GetKeyDown(KeyCode.Slash))
+    //    {
+    //        amplitude = volume;
+    //        oscFrequency = frequencies[octave * 12 + 15];
+    //    }
+    //}
 
     // Generates frequencies of notes. Only called once, in Start().
+
     double[] GenerateFrequencies()
     {
 
-        double[] freqs = new double[88];
+        double[] freqs = new double[127];
         double fA4 = 440.0;
 
         for (int i = 0; i < freqs.Length; i++)
         {
 
-            // (-48 + i) is the distance away from A4.
-            // Starting at A0 means we are -48 notes away from A4 (0)
-            double ratio = Mathf.Pow(2f, (-48f + i) / 12f);
+            // (-69 + i) is the distance away from A4.
+            // Starting at midi note 0 means we are -69 notes away from A4
+            double ratio = Mathf.Pow(2f, (-69f + i) / 12f);
             freqs[i] = fA4 * ratio;
         }
-
         return freqs;
+    }
+
+    void OnEnable()
+    {
+        MidiMaster.noteOnDelegate += NoteOn;
+        MidiMaster.noteOffDelegate += NoteOff;
+        MidiMaster.knobDelegate += Knob;
+    }
+
+    void OnDisable()
+    {
+        MidiMaster.noteOnDelegate -= NoteOn;
+        MidiMaster.noteOffDelegate -= NoteOff;
+        MidiMaster.knobDelegate -= Knob;
     }
 
 }

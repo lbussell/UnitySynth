@@ -62,7 +62,13 @@
   </ItemGroup>
   <ItemGroup>
     <Compile Include="Assets\AudioVisualizer.cs" />
+    <Compile Include="Assets\DelegateHandler.cs" />
+    <Compile Include="Assets\Envelope.cs" />
     <Compile Include="Assets\manageUI.cs" />
+    <Compile Include="Assets\MidiJack\Midi.cs" />
+    <Compile Include="Assets\MidiJack\MidiDriver.cs" />
+    <Compile Include="Assets\MidiJack\MidiMaster.cs" />
+    <Compile Include="Assets\MidiJack\MidiStateUpdater.cs" />
     <Compile Include="Assets\Oscillator.cs" />
     <Reference Include="UnityEditor.StandardEvents">
       <HintPath>/Users/buswerks/Developer/GitHub/UnitySynth/Library/ScriptAssemblies/UnityEditor.StandardEvents.dll</HintPath>
