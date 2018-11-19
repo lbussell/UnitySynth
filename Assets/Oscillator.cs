@@ -29,7 +29,7 @@ public class Oscillator : MonoBehaviour
     private double attack = 0.5;
     private double decay = 0.2;
     private double sustain = 0;
-    private double resonance = 0.1f;
+    private double release = 0.1f;
 
     // Modifiable Parameters
     public string waveShape = "Sine";
@@ -93,30 +93,51 @@ public class Oscillator : MonoBehaviour
         attack = MidiMaster.GetKnob(21, 0);
         decay = MidiMaster.GetKnob(22, 0);
         sustain = MidiMaster.GetKnob(23, 0);
+        release = MidiMaster.GetKnob(24, 0);
     }
 
     double ComputeAmplitude(double preciseDspTime)
     {
         // return 1;
         double dTime = preciseDspTime - triggerOnTime;
+        // double dTimeOff = preciseDspTime - triggerOffTime;
+
+        double amplitude = 0;
 
         if (numberOfNotesOn > 0)
         {
             if (dTime <= attack && attack > 0)
             {
-                return dTime / attack;
+                amplitude =  dTime / attack;
             }
-            else if (dTime > attack && dTime <= attack + decay) 
+            if (dTime > attack && dTime <= attack + decay) 
             {
-                return ((dTime - attack) / decay) * (sustain - 1) + 1;
+                amplitude =  ((dTime - attack) / decay) * (sustain - 1) + 1;
             }
-            else if (dTime > attack + decay)
+            if (dTime > attack + decay)
             {
-                return sustain;
+                amplitude = sustain;
             }
-            else return 1;
         }
-        return 0;
+        else
+        {
+            amplitude = ((preciseDspTime - triggerOffTime) / release) * (0.0 - sustain) + sustain;
+        }
+
+        if (amplitude <= 0.0001)
+            amplitude = 0;
+
+        return amplitude;
+
+        //else
+        //{
+        //    // Note has been released, so in release phase
+        //    dAmplitude = ((dTime - dTriggerOffTime) / dReleaseTime) * (0.0 - dSustainAmplitude) + dSustainAmplitude;
+        //}
+
+        //// Amplitude should not be negative
+        //if (dAmplitude <= 0.0001)
+            //dAmplitude = 0.0;
     }
 
     void NoteOn(MidiChannel channel, int note, float velocity)
@@ -138,13 +159,6 @@ public class Oscillator : MonoBehaviour
     {
         Debug.Log("Knob: " + knobNumber + "," + knobValue);
     }
-
-    /**
-     * 
-     * 
-     * 
-     * 
-     */
 
     public void ChangeVolume(float value) {
         this.volume = value;
@@ -361,7 +375,7 @@ public class Oscillator : MonoBehaviour
     {
 
         double[] freqs = new double[127];
-        double fA4 = 440.0;
+        double fA4 = 432.0;
 
         for (int i = 0; i < freqs.Length; i++)
         {
