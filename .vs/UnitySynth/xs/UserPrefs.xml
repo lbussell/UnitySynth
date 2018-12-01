@@ -1,10 +1,8 @@
 ﻿<Properties StartupConfiguration="{A84EC328-A9D1-0C5F-083F-AA9D4E3DBAB3}|">
   <MonoDevelop.Ide.Workbench ActiveDocument="Assets/Oscillator.cs">
     <Files>
-      <File FileName="Assets/Oscillator.cs" Line="95" Column="45" />
-      <File FileName="Assets/manageUI.cs" Line="10" Column="32" />
-      <File FileName="Assets/DelegateHandler.cs" Line="41" Column="1" />
-      <File FileName="Assets/Envelope.cs" Line="17" Column="34" />
+      <File FileName="Assets/KnobController.cs" Line="19" Column="17" />
+      <File FileName="Assets/Oscillator.cs" Line="10" Column="43" />
     </Files>
   </MonoDevelop.Ide.Workbench>
   <MonoDevelop.Ide.DebuggingService.PinnedWatches />

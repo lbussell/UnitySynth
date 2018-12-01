@@ -5,149 +5,228 @@ using UnityEngine;
 
 public class Oscillator : MonoBehaviour
 {
+    // For GUI purposes
+    public KnobController knobController;
 
-    private Envelope envelope;
+    // Samplerate information
+    private static int _FS;
+    private static double _sampleDuration;
 
-    private static int SAMPLING_FREQUENCY = 44100;
+    // For oscillation
     private double phaseIncrement;
     private double phase;
-    private double amplitude;
 
-    private double dspTimeStep;
-    private double chunkTime;
+    // For envelope control
+    private double envelope;
     private double currentDspTime;
-
-    private bool noteIsOn = false;
     private int numberOfNotesOn;
     private double triggerOnTime;
-    private double triggerOffTime = 0;
+    private double triggerOffTime;
+
+    // For single-pole low pass filter
+    private float previousOutput;
+    private float nextOutput;
 
     private double oscFrequency = 440.0;
     private double[] frequencies;
-    private int octave = 4; // Octave 4 for A4
 
-    private double attack = 0.5;
-    private double decay = 0.2;
-    private double sustain = 0;
-    private double release = 0.1f;
+    // Envelope controls
+    // The [Range] parameter is only for control in the Unity editor.
+    [Range(0f,1f)]
+    public double attack;
+    [Range(0f, 1f)]
+    public double decay;
+    [Range(0f, 1f)]
+    public double sustain = 1;
+    [Range(0f, 1f)]
+    public double release = 0.1f;
+    [Range(0f, 1f)]
+    public double lowPass;
 
-    // Modifiable Parameters
-    public string waveShape = "Sine";
-    public string keyboardLayout = "Qwerty";
+    // Waveshape weights
+    [Range(0f, 1f)]
+    public double sinWeight = 0;
+    [Range(0f, 1f)]
+    public double sqrWeight = 0;
+    [Range(0f, 1f)]
+    public double sawWeight = 1;
 
     public double volume = 0.1;
 
     // Oscillator
     void OnAudioFilterRead(float[] data, int channels)
     {
+        /* 
+         * This is "the current time of the audio system", as given
+         * by Unity. It is updated every time the OnAudioFilterRead() function
+         * is called. It's usually every 1024 samples.
+         * 
+         * A note on the sample rate:
+         * We don't actually see real numbers for the sample rate, we instead
+         * read it from the system in the Start() function.
+         */
         currentDspTime = AudioSettings.dspTime;
-        chunkTime = data.Length / channels / SAMPLING_FREQUENCY;   // the time that each chunk of data lasts
-        dspTimeStep = chunkTime / data.Length;
-        double preciseDspTime;
-        // Oscillator 1
+
         for (int i = 0; i < data.Length; i += channels)
         {
-            preciseDspTime = currentDspTime + i * dspTimeStep;
+            /*
+             * Sample duration is just 1/fs. Because dspTime isn't updated every
+             * sample, we "update" it ourselves so our envelope sounds smooth.
+             */
+            currentDspTime += _sampleDuration;
+            envelope = ComputeAmplitude(currentDspTime) * volume;
 
-            phaseIncrement = oscFrequency * 2.0 * Mathf.PI / SAMPLING_FREQUENCY;
+            /*
+             * The phase variable below increments by the calculated amount for
+             * every audio sample. We can then use this value to calculate what
+             * each waveform's value should be.
+             * 
+             *             2pi * f
+             *     phase = -------
+             *               fs
+             * 
+             * When phase is greater than 2pi, we just reset
+             * it so we don't have an ever-increasing variable that will cause
+             * an overflow error.
+             */
+            phaseIncrement = oscFrequency * 2.0 * Mathf.PI / _FS;
             phase += phaseIncrement;
-
-            amplitude = ComputeAmplitude(preciseDspTime) * volume;
-
-            if (phase > (Mathf.PI * 2)) phase = phase % (Mathf.PI * 2);
-
-            switch (waveShape)
-            {
-                case "Sine":
-                    data[i] += (float)(amplitude * Mathf.Sin((float)phase));
-                    break;
-                case "Sawtooth":
-                    double saw = (amplitude * phase) - (amplitude / 2);
-                    data[i] += (float)saw;
-                    break;
-                case "Square":
-                    if (phase > Mathf.PI) data[i] = 
-                        (float) (amplitude - (amplitude / 2));
-                    else data[i] += (float) -(amplitude / 2);
-                    break;
+            if (phase > (Mathf.PI * 2)){
+                phase = phase % (Mathf.PI * 2);
             }
 
-            // stereo audio
+            nextOutput = 0;
+
+            // Adds sinusoidal wave to the next output sample
+            nextOutput += (float)(sinWeight * envelope * Mathf.Sin((float)phase));
+
+            // Adds sawtooth wave to the next output sample
+            nextOutput += (float)(sawWeight * ((envelope * phase) / (2 * Mathf.PI)) - (envelope / 2));
+
+            // Adds square wave to the next output sample
+            if (phase > Mathf.PI) {
+                nextOutput += (float)(sqrWeight*(envelope - (envelope / 2)));
+            } else {
+                nextOutput += (float)((sqrWeight)*-(envelope / 2));
+            }
+
+            /*
+             * Here we apply a single-pole low-pass filter. Even if the filter
+             * is completely open (lowPass = 1) we still compute this step so we
+             * don't have to have any conditional logic.
+             */
+            nextOutput = (float)((nextOutput * lowPass) + (previousOutput * (1 - lowPass)));
+
+            // Write the output to the audio filter
+            data[i] += nextOutput;
+
+            // This is for the next low-pass calculation
+            previousOutput = nextOutput;
+
+            // Copy the sound from one channel into the next channel for stereo
             if (channels == 2) data[i + 1] = data[i];
         }
-
     }
 
-    // Start is called at the beginning
+    /*
+     * Called at the beginning of the program
+     */
     void Start()
     {
+        // Grab the sample rate from the system
+        _FS = AudioSettings.outputSampleRate;
+        // Calculate how long each sample lasts
+        _sampleDuration = 1.0 / _FS;
+        // Generate frequencies corresponding to all MIDI values
         frequencies = GenerateFrequencies();
     }
 
-    // Update is called once per frame
+    /*
+     * Update is called once per frame (usually 60 fps)
+     */
     void Update()
     {
-        //if (keyboardLayout.Equals("Colemak")) checkColemakInput();
-        //else if (keyboardLayout.Equals("Qwerty")) checkQwertyInput();
-        // amplitude = ComputeAmplitude(Time.time) * volume;
-        attack = MidiMaster.GetKnob(21, 0);
-        decay = MidiMaster.GetKnob(22, 0);
-        sustain = MidiMaster.GetKnob(23, 0);
-        release = MidiMaster.GetKnob(24, 0);
+        // For testing purposes
+        CheckSingleKeyboardInput();
     }
 
+    /*
+     * Computes the amplitude, or the envelope, given the current time of the
+     * audio system (the precise one that we calculated).
+     */
     double ComputeAmplitude(double preciseDspTime)
     {
-        // return 1;
+        /*
+         * Compute the time since we last pressed a note
+         */
         double dTime = preciseDspTime - triggerOnTime;
-        // double dTimeOff = preciseDspTime - triggerOffTime;
 
         double amplitude = 0;
 
         if (numberOfNotesOn > 0)
         {
             if (dTime <= attack && attack > 0)
-            {
-                amplitude =  dTime / attack;
+            { // Time since note press is less than attack
+                amplitude = dTime / attack;
             }
+
             if (dTime > attack && dTime <= attack + decay) 
-            {
-                amplitude =  ((dTime - attack) / decay) * (sustain - 1) + 1;
+            { // Done with attack phase, so calculate decay
+                amplitude = ((dTime - attack) / decay) * (sustain - 1) + 1;
             }
+
             if (dTime > attack + decay)
-            {
+            { // Done with attack and decay, so sustain
                 amplitude = sustain;
             }
         }
+        else if (release == 0) 
+        { // Prevent dividing by 0 in the event that release is 0s
+            amplitude = 0;
+        }
         else
-        {
+        { // Calculate release. This only happens when no notes are on.
             amplitude = ((preciseDspTime - triggerOffTime) / release) * (0.0 - sustain) + sustain;
         }
 
+        // Make sure amplitude actually reaches 0
         if (amplitude <= 0.0001)
             amplitude = 0;
 
         return amplitude;
-
-        //else
-        //{
-        //    // Note has been released, so in release phase
-        //    dAmplitude = ((dTime - dTriggerOffTime) / dReleaseTime) * (0.0 - dSustainAmplitude) + dSustainAmplitude;
-        //}
-
-        //// Amplitude should not be negative
-        //if (dAmplitude <= 0.0001)
-            //dAmplitude = 0.0;
     }
 
+    /*
+     * This method is called whenever a note is pressed, thanks to a delegate
+     * provided by the MIDI support frameworks that we are using
+     */
     void NoteOn(MidiChannel channel, int note, float velocity)
     {
+        // This is only for debugging purposes
         Debug.Log("NoteOn: " + channel + "," + note + "," + velocity);
-        oscFrequency = frequencies[note];
-        numberOfNotesOn++;
-        triggerOnTime = AudioSettings.dspTime;
+
+        /*
+         * Some MIDI keyboards report note on signals and note down signals.
+         * Other MIDI devices report note on signals and then another note on
+         * signal with a velocity of 0 as a "note off" signal.
+         * 
+         * This check prevents this from registering as an additional note press
+         * since we don't care about velocity sensitivity.
+         */
+        if (velocity > 0) {
+            // Read the proper frequency from the frequency table we generated
+            oscFrequency = frequencies[note];
+            // Record that a note was pressed
+            numberOfNotesOn++;
+            // Set the trigger on time for amplitude calculation
+            triggerOnTime = AudioSettings.dspTime;
+        }
     }
 
+    /*
+     * This method is called whenever a note is released. It's basically the
+     * opposite of NoteOn.
+     */
     void NoteOff(MidiChannel channel, int note)
     {
         Debug.Log("NoteOff: " + channel + "," + note);
@@ -155,251 +234,124 @@ public class Oscillator : MonoBehaviour
         triggerOffTime = AudioSettings.dspTime;
     }
 
+    /*
+     * This note is called whenever any MIDI knob is changed.
+     * Unfortunately we had to hard code support for specific MIDI controllers.
+     * The numbers on the left are for the Novation Launchkey Mini MKII
+     * The numbers on the right are for the M-Audio Oxygen 61 (the old one)
+     */
     void Knob(MidiChannel channel, int knobNumber, float knobValue)
     {
         Debug.Log("Knob: " + knobNumber + "," + knobValue);
+
+        // Envelope Controls
+        if (knobNumber == 21 || knobNumber == 74) 
+        {
+            attack = knobValue;
+            // This line is for updating the GUI
+            knobController.ChangeSliderPosition("a", knobValue);
+        } 
+        else if (knobNumber == 22 || knobNumber == 71) 
+        {
+            decay = knobValue;
+            knobController.ChangeSliderPosition("d", knobValue);
+        } 
+        else if (knobNumber == 23 || knobNumber == 91)
+        {
+            sustain = knobValue;
+            knobController.ChangeSliderPosition("s", knobValue);
+        }
+        else if (knobNumber == 24 || knobNumber == 93)
+        {
+            release = knobValue;
+            knobController.ChangeSliderPosition("r", knobValue);
+        }
+
+        // Filter controls
+        else if (knobNumber == 25 || knobNumber == 75) 
+        {
+            lowPass = knobValue;
+            knobController.ChangeKnobRotation("lpf", knobValue);
+        }
+
+        // Waveshape weightings
+        else if (knobNumber == 26 || knobNumber == 73) 
+        {
+            sinWeight = knobValue;
+            knobController.ChangeKnobRotation("sin", knobValue);
+        } 
+        else if (knobNumber == 27 || knobNumber == 72)
+        {
+            sawWeight = knobValue;
+            knobController.ChangeKnobRotation("saw", knobValue);
+        } 
+        else if (knobNumber == 28 || knobNumber == 5) 
+        {
+            sqrWeight = knobValue;
+            knobController.ChangeKnobRotation("sqr", knobValue);
+        }
     }
 
-    public void ChangeVolume(float value) {
-        this.volume = value;
+    /*
+     * This method simulates NoteOn and NoteOff, but only looks at the 'A' key
+     * on the computer keyboard. This is for testing sound without MIDI input.
+     */
+    void CheckSingleKeyboardInput() {
+        if (Input.GetKeyDown(KeyCode.A)) {
+            oscFrequency = frequencies[45];
+            numberOfNotesOn++;
+            triggerOnTime = AudioSettings.dspTime;
+        } else if (Input.GetKeyUp(KeyCode.A)) {
+            numberOfNotesOn--;
+            triggerOffTime = AudioSettings.dspTime;
+        }
     }
 
-    public void ChangeWaveform(string newWaveshape) {
-        this.waveShape = newWaveshape;
-    }
-
-    public void ChangeKeyboardLayout(string newLayout) {
-        this.keyboardLayout = newLayout;
-    }
-
-    //void checkColemakInput() {
-
-    //    if (!Input.anyKey)
-    //    {
-    //        amplitude = 0;
-    //    }
-
-    //    if (Input.GetKeyDown(KeyCode.LeftArrow))
-    //    {
-    //        if (octave > 0) octave--;
-    //    }
-    //    else if (Input.GetKeyDown(KeyCode.RightArrow))
-    //    {
-    //        if (octave < 6) octave++;
-    //    }
-
-    //    if (Input.GetKeyDown(KeyCode.Z))
-    //    {
-    //        amplitude = volume;
-    //        oscFrequency = frequencies[octave * 12 + 0];
-    //    }
-    //    else if (Input.GetKeyDown(KeyCode.R))
-    //    {
-    //        amplitude = volume;
-    //        oscFrequency = frequencies[octave * 12 + 1];
-    //    }
-    //    else if (Input.GetKeyDown(KeyCode.X))
-    //    {
-    //        amplitude = volume;
-    //        oscFrequency = frequencies[octave * 12 + 2];
-    //    }
-    //    else if (Input.GetKeyDown(KeyCode.C))
-    //    {
-    //        amplitude = volume;
-    //        oscFrequency = frequencies[octave * 12 + 3];
-    //    }
-    //    else if (Input.GetKeyDown(KeyCode.T))
-    //    {
-    //        amplitude = volume;
-    //        oscFrequency = frequencies[octave * 12 + 4];
-    //    }
-    //    else if (Input.GetKeyDown(KeyCode.V))
-    //    {
-    //        amplitude = volume;
-    //        oscFrequency = frequencies[octave * 12 + 5];
-    //    }
-    //    else if (Input.GetKeyDown(KeyCode.D))
-    //    {
-    //        amplitude = volume;
-    //        oscFrequency = frequencies[octave * 12 + 6];
-    //    }
-    //    else if (Input.GetKeyDown(KeyCode.B))
-    //    {
-    //        amplitude = volume;
-    //        oscFrequency = frequencies[octave * 12 + 7];
-    //    }
-    //    else if (Input.GetKeyDown(KeyCode.K))
-    //    {
-    //        amplitude = volume;
-    //        oscFrequency = frequencies[octave * 12 + 8];
-    //    }
-    //    else if (Input.GetKeyDown(KeyCode.N))
-    //    {
-    //        amplitude = volume;
-    //        oscFrequency = frequencies[octave * 12 + 9];
-    //    }
-    //    else if (Input.GetKeyDown(KeyCode.M))
-    //    {
-    //        amplitude = volume;
-    //        oscFrequency = frequencies[octave * 12 + 10];
-    //    }
-    //    else if (Input.GetKeyDown(KeyCode.E))
-    //    {
-    //        amplitude = volume;
-    //        oscFrequency = frequencies[octave * 12 + 11];
-    //    }
-    //    else if (Input.GetKeyDown(KeyCode.Comma))
-    //    {
-    //        amplitude = volume;
-    //        oscFrequency = frequencies[octave * 12 + 12];
-    //    }
-    //    else if (Input.GetKeyDown(KeyCode.I))
-    //    {
-    //        amplitude = volume;
-    //        oscFrequency = frequencies[octave * 12 + 13];
-    //    }
-    //    else if (Input.GetKeyDown(KeyCode.Period))
-    //    {
-    //        amplitude = volume;
-    //        oscFrequency = frequencies[octave * 12 + 14];
-    //    }
-    //    else if (Input.GetKeyDown(KeyCode.Slash))
-    //    {
-    //        amplitude = volume;
-    //        oscFrequency = frequencies[octave * 12 + 15];
-    //    }
-    //}
-
-    //void checkQwertyInput()
-    //{
-
-    //    if (!Input.anyKey)
-    //    {
-    //        amplitude = 0;
-    //    }
-
-    //    if (Input.GetKeyDown(KeyCode.LeftArrow))
-    //    {
-    //        if (octave > 0) octave--;
-    //    }
-    //    else if (Input.GetKeyDown(KeyCode.RightArrow))
-    //    {
-    //        if (octave < 6) octave++;
-    //    }
-
-    //    if (Input.GetKeyDown(KeyCode.Z))
-    //    {
-    //        amplitude = volume;
-    //        oscFrequency = frequencies[octave * 12 + 0];
-    //    }
-    //    else if (Input.GetKeyDown(KeyCode.S))
-    //    {
-    //        amplitude = volume;
-    //        oscFrequency = frequencies[octave * 12 + 1];
-    //    }
-    //    else if (Input.GetKeyDown(KeyCode.X))
-    //    {
-    //        amplitude = volume;
-    //        oscFrequency = frequencies[octave * 12 + 2];
-    //    }
-    //    else if (Input.GetKeyDown(KeyCode.C))
-    //    {
-    //        amplitude = volume;
-    //        oscFrequency = frequencies[octave * 12 + 3];
-    //    }
-    //    else if (Input.GetKeyDown(KeyCode.F))
-    //    {
-    //        amplitude = volume;
-    //        oscFrequency = frequencies[octave * 12 + 4];
-    //    }
-    //    else if (Input.GetKeyDown(KeyCode.V))
-    //    {
-    //        amplitude = volume;
-    //        oscFrequency = frequencies[octave * 12 + 5];
-    //    }
-    //    else if (Input.GetKeyDown(KeyCode.G))
-    //    {
-    //        amplitude = volume;
-    //        oscFrequency = frequencies[octave * 12 + 6];
-    //    }
-    //    else if (Input.GetKeyDown(KeyCode.B))
-    //    {
-    //        amplitude = volume;
-    //        oscFrequency = frequencies[octave * 12 + 7];
-    //    }
-    //    else if (Input.GetKeyDown(KeyCode.N))
-    //    {
-    //        amplitude = volume;
-    //        oscFrequency = frequencies[octave * 12 + 8];
-    //    }
-    //    else if (Input.GetKeyDown(KeyCode.J))
-    //    {
-    //        amplitude = volume;
-    //        oscFrequency = frequencies[octave * 12 + 9];
-    //    }
-    //    else if (Input.GetKeyDown(KeyCode.M))
-    //    {
-    //        amplitude = volume;
-    //        oscFrequency = frequencies[octave * 12 + 10];
-    //    }
-    //    else if (Input.GetKeyDown(KeyCode.K))
-    //    {
-    //        amplitude = volume;
-    //        oscFrequency = frequencies[octave * 12 + 11];
-    //    }
-    //    else if (Input.GetKeyDown(KeyCode.Comma))
-    //    {
-    //        amplitude = volume;
-    //        oscFrequency = frequencies[octave * 12 + 12];
-    //    }
-    //    else if (Input.GetKeyDown(KeyCode.L))
-    //    {
-    //        amplitude = volume;
-    //        oscFrequency = frequencies[octave * 12 + 13];
-    //    }
-    //    else if (Input.GetKeyDown(KeyCode.Period))
-    //    {
-    //        amplitude = volume;
-    //        oscFrequency = frequencies[octave * 12 + 14];
-    //    }
-    //    else if (Input.GetKeyDown(KeyCode.Slash))
-    //    {
-    //        amplitude = volume;
-    //        oscFrequency = frequencies[octave * 12 + 15];
-    //    }
-    //}
-
-    // Generates frequencies of notes. Only called once, in Start().
-
+    /*
+     * Generates frequencies corresponding to MIDI values 0 to 127.
+     */
     double[] GenerateFrequencies()
     {
 
         double[] freqs = new double[127];
-        double fA4 = 432.0;
+        double fA4 = 440.0;
 
         for (int i = 0; i < freqs.Length; i++)
         {
-
-            // (-69 + i) is the distance away from A4.
-            // Starting at midi note 0 means we are -69 notes away from A4
+            /*
+             * (-69 + i) is the distance away from A4.
+             * Starting at midi note 0 means we are -69 notes away from A4
+             */
             double ratio = Mathf.Pow(2f, (-69f + i) / 12f);
             freqs[i] = fA4 * ratio;
         }
+
         return freqs;
     }
 
+    /*
+     * Called when the object is created
+     */
     void OnEnable()
     {
+        /*
+         * These delegates are how MIDI input is handled. We assign a method
+         * (NoteOn, NoteOff, etc) to a specific delegate provided to us by the
+         * MIDI support library that we use.
+         */
         MidiMaster.noteOnDelegate += NoteOn;
         MidiMaster.noteOffDelegate += NoteOff;
         MidiMaster.knobDelegate += Knob;
     }
 
+    /*
+     * Called when the object is deleted (this will never happen, but it's
+     * good practice)
+     */
     void OnDisable()
     {
         MidiMaster.noteOnDelegate -= NoteOn;
         MidiMaster.noteOffDelegate -= NoteOff;
         MidiMaster.knobDelegate -= Knob;
     }
-
 }
