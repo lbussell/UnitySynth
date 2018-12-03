@@ -1,5 +1,7 @@
+![Screenshot](https://i.imgur.com/hdCVqj7.png)
+
 # UnitySynth
-A simple synthesizer made with Unity
+A simple synthesizer made with Unity.
 
 ### Parameters
 - Envelope controls
