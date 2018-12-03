@@ -2,13 +2,14 @@
 A simple synthesizer made with Unity
 
 ### Parameters
-- Volume Slider
-- Waveform dropdown
-  - Choose between Sine, Sawtooth, and Square (mathematically perfect, not approximations)
-- Keyboard layout dropdown
+- Envelope controls
+  - Attack, Decay, Sustain, Resonance
+- LPF
+  - Single pole low-pass filter
+- Different weightings for sine, sawtooth, and square waves
 
 ### Controls
-- Supports both Qwerty and Colemak keyboard layouts
-- The bottom row of keys (starting with Z, all the way to /) are the "white" keys, starting on A
-- The home row of keys are the "black" keys
-- The left and right arrows change the octave (7 octave range)
+- Supports MIDI input for the following keyboards:
+  - Novation Launchkey Mini MKII
+  - M-Audio Oxygen 61
+- It would be trivial to hard-code support for your own keyboard, or modify the software to support on-the-fly parameter mapping
